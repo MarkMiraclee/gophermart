@@ -48,7 +48,7 @@ func main() {
 	}
 
 	go func() {
-		if err := server.ListenAndServe(); err != nil && !errors.Is(http.ErrServerClosed, err) {
+		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Fatalf("listen: %s\n", err)
 		}
 	}()

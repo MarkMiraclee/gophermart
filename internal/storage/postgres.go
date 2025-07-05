@@ -103,20 +103,23 @@ func (s *PostgresStorage) GetUserByLogin(ctx context.Context, login string) (*mo
 }
 
 func (s *PostgresStorage) CreateOrder(ctx context.Context, userID, orderNumber string) error {
-	existingOrder, err := s.GetOrderByNumber(ctx, orderNumber)
-	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+	_, err := s.pool.Exec(ctx, "INSERT INTO orders (id, user_id, number, status, uploaded_at) VALUES ($1, $2, $3, $4, $5)",
+		uuid.NewString(), userID, orderNumber, "NEW", time.Now())
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			existingOrder, getErr := s.GetOrderByNumber(ctx, orderNumber)
+			if getErr != nil {
+				return getErr
+			}
+			if existingOrder.UserID == userID {
+				return ErrOrderExists
+			}
+			return ErrOrderExistsOther
+		}
 		return err
 	}
-	if existingOrder != nil {
-		if existingOrder.UserID == userID {
-			return ErrOrderExists
-		}
-		return ErrOrderExistsOther
-	}
-
-	_, err = s.pool.Exec(ctx, "INSERT INTO orders (id, user_id, number, status, uploaded_at) VALUES ($1, $2, $3, $4, $5)",
-		uuid.NewString(), userID, orderNumber, "NEW", time.Now())
-	return err
+	return nil
 }
 
 func (s *PostgresStorage) GetOrderByNumber(ctx context.Context, orderNumber string) (*models.Order, error) {
@@ -198,18 +201,27 @@ func (s *PostgresStorage) CreateWithdrawal(ctx context.Context, userID, orderNum
 		return err
 	}
 	defer tx.Rollback(ctx)
-	balance, err := s.GetBalance(ctx, userID)
+	var balance models.Balance
+	err = tx.QueryRow(ctx, "SELECT COALESCE(SUM(accrual), 0) FROM orders WHERE user_id = $1 AND status = 'PROCESSED'", userID).Scan(&balance.Current)
 	if err != nil {
 		return err
 	}
-	if balance.Current < sum {
+
+	err = tx.QueryRow(ctx, "SELECT COALESCE(SUM(sum), 0) FROM withdrawals WHERE user_id = $1", userID).Scan(&balance.Withdrawn)
+	if err != nil {
+		return err
+	}
+
+	if (balance.Current - balance.Withdrawn) < sum {
 		return ErrInsufficientFunds
 	}
+
 	_, err = tx.Exec(ctx, "INSERT INTO withdrawals (id, user_id, order_number, sum, processed_at) VALUES ($1, $2, $3, $4, $5)",
 		uuid.NewString(), userID, orderNumber, sum, time.Now())
 	if err != nil {
 		return err
 	}
+
 	return tx.Commit(ctx)
 }
 

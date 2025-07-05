@@ -15,7 +15,7 @@ import (
 )
 
 const (
-	updateInterval = 5 * time.Second
+	updateInterval = 1 * time.Second
 )
 
 type Client struct {
