@@ -9,7 +9,7 @@ func NewRouter(api *API) *chi.Mux {
 	r := chi.NewRouter()
 
 	r.Use(middlewares.Logger(api.log))
-	r.Use(middlewares.Gzip)
+	r.Use(middlewares.Gzip(api.log))
 
 	r.Route("/api/user", func(r chi.Router) {
 		r.Post("/register", api.Register)

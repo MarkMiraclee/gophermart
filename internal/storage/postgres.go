@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/sirupsen/logrus"
 )
 
 var (
@@ -21,9 +22,10 @@ var (
 
 type PostgresStorage struct {
 	pool *pgxpool.Pool
+	log  *logrus.Logger
 }
 
-func NewPostgresStorage(ctx context.Context, dsn string) (*PostgresStorage, error) {
+func NewPostgresStorage(ctx context.Context, dsn string, log *logrus.Logger) (*PostgresStorage, error) {
 	pool, err := pgxpool.New(ctx, dsn)
 	if err != nil {
 		return nil, err
@@ -33,7 +35,7 @@ func NewPostgresStorage(ctx context.Context, dsn string) (*PostgresStorage, erro
 		return nil, err
 	}
 
-	storage := &PostgresStorage{pool: pool}
+	storage := &PostgresStorage{pool: pool, log: log}
 	if err := storage.runMigrations(ctx); err != nil {
 		return nil, err
 	}
@@ -200,7 +202,11 @@ func (s *PostgresStorage) CreateWithdrawal(ctx context.Context, userID, orderNum
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback(ctx)
+	defer func() {
+		if err := tx.Rollback(ctx); err != nil && !errors.Is(err, pgx.ErrTxClosed) {
+			s.log.Errorf("failed to rollback transaction: %v", err)
+		}
+	}()
 	var balance models.Balance
 	err = tx.QueryRow(ctx, "SELECT COALESCE(SUM(accrual), 0) FROM orders WHERE user_id = $1 AND status = 'PROCESSED'", userID).Scan(&balance.Current)
 	if err != nil {

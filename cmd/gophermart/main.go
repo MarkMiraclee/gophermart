@@ -30,7 +30,7 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	db, err := storage.NewPostgresStorage(ctx, cfg.DatabaseURI)
+	db, err := storage.NewPostgresStorage(ctx, cfg.DatabaseURI, log)
 	if err != nil {
 		log.Fatalf("failed to initialize storage: %v", err)
 	}
